@@ -3,7 +3,7 @@
 $server = getenv('DB_HOST') ?: '127.0.0.1';
 $username = getenv('DB_USER') ?: 'root';
 $password = getenv('DB_PASSWORD') ?: '';
-$database = getenv('DB_NAME') ?: 'food_website';
+$database = getenv('DB_NAME') ?: 'id18044649_food_website';
 $port = (int)(getenv('DB_PORT') ?: 3306);
 
 $conn = mysqli_connect($server, $username, $password, $database, $port)
