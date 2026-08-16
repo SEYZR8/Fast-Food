@@ -1,6 +1,5 @@
-<?php
+<?php 
 include 'function.php';
-
 headers();
 banners();
 search_result();
