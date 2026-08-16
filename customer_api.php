@@ -1,0 +1,16 @@
+<?php
+session_start(); require_once __DIR__.'/conf.php'; header('Content-Type: application/json; charset=utf-8');
+function out($d,$c=200){http_response_code($c);echo json_encode($d,JSON_UNESCAPED_UNICODE|JSON_UNESCAPED_SLASHES);exit;}
+$conn->query("CREATE TABLE IF NOT EXISTS customer_profiles(id BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,user_id BIGINT NULL,name VARCHAR(190) NOT NULL,phone VARCHAR(60) NOT NULL UNIQUE,email VARCHAR(190) NULL,address TEXT NULL,password_hash VARCHAR(255) NULL,created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4");
+$a=$_REQUEST['action']??'';
+try{
+ if($a==='register'){$name=trim((string)($_POST['name']??''));$phone=preg_replace('/[^0-9+]/','',trim((string)($_POST['phone']??'')));$pass=(string)($_POST['password']??'');$address=trim((string)($_POST['address']??''));if(mb_strlen($name)<2||!preg_match('/^\+?[0-9]{9,15}$/',$phone)||mb_strlen($pass)<6)out(['ok'=>false,'message'=>'Ism, telefon va kamida 6 belgili parol kerak'],422);$st=$conn->prepare('SELECT id FROM customer_profiles WHERE phone=? LIMIT 1');$st->bind_param('s',$phone);$st->execute();if($st->get_result()->fetch_assoc())out(['ok'=>false,'message'=>'Bu telefon bilan kabinet mavjud'],409);$hash=password_hash($pass,PASSWORD_DEFAULT);$st=$conn->prepare('INSERT INTO customer_profiles(name,phone,address,password_hash) VALUES(?,?,?,?)');$st->bind_param('ssss',$name,$phone,$address,$hash);$st->execute();$_SESSION['customer_profile_id']=$conn->insert_id;out(['ok'=>true]);}
+ if($a==='login'){$phone=preg_replace('/[^0-9+]/','',trim((string)($_POST['phone']??'')));$pass=(string)($_POST['password']??'');$st=$conn->prepare('SELECT * FROM customer_profiles WHERE phone=? LIMIT 1');$st->bind_param('s',$phone);$st->execute();$c=$st->get_result()->fetch_assoc();if(!$c||empty($c['password_hash'])||!password_verify($pass,$c['password_hash']))out(['ok'=>false,'message'=>'Telefon yoki parol noto‘g‘ri'],401);$_SESSION['customer_profile_id']=(int)$c['id'];out(['ok'=>true]);}
+ if($a==='logout'){unset($_SESSION['customer_profile_id']);out(['ok'=>true]);}
+ $id=(int)($_SESSION['customer_profile_id']??0);if(!$id)out(['ok'=>false,'message'=>'Kabinetga kiring'],401);
+ if($a==='me'){$st=$conn->prepare('SELECT id,name,phone,email,address,created_at FROM customer_profiles WHERE id=?');$st->bind_param('i',$id);$st->execute();$c=$st->get_result()->fetch_assoc();out(['ok'=>true,'data'=>$c]);}
+ if($a==='orders'){$st=$conn->prepare("SELECT * FROM admin_orders WHERE phone=(SELECT phone FROM customer_profiles WHERE id=?) ORDER BY created_at DESC LIMIT 100");$st->bind_param('i',$id);$st->execute();$rows=[];$q=$st->get_result();while($x=$q->fetch_assoc())$rows[]=$x;out(['ok'=>true,'data'=>$rows]);}
+ if($a==='profile'){$name=trim((string)($_POST['name']??''));$address=trim((string)($_POST['address']??''));$st=$conn->prepare('UPDATE customer_profiles SET name=?,address=? WHERE id=?');$st->bind_param('ssi',$name,$address,$id);$st->execute();out(['ok'=>true]);}
+ out(['ok'=>false,'message'=>'Unknown action'],404);
+}catch(Throwable $e){error_log('Customer API: '.$e->getMessage());out(['ok'=>false,'message'=>'Server xatosi'],500);}
+?>
