@@ -1,0 +1,8 @@
+git
+.git
+.github
+.vscode
+README.md
+Dockerfile
+docker
+*.zip
