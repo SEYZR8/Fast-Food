@@ -9,6 +9,10 @@ RUN apt-get update \
 WORKDIR /var/www/html
 COPY . /var/www/html/
 
+# Apply the PHP output layer to every page so the Uzbek interface also covers
+# the generated admin pages without changing JSON/AJAX responses.
+COPY docker/zz-render.ini /usr/local/etc/php/conf.d/zz-render.ini
+
 RUN mkdir -p /var/www/html/images /var/www/html/css /var/www/html/js /var/www/html/database/upload /var/www/html/admin/css /var/www/html/admin/js \
     && find /var/www/html -maxdepth 1 -type f \( -iname '*.png' -o -iname '*.jpg' -o -iname '*.jpeg' -o -iname '*.gif' -o -iname '*.webp' \) -exec cp -n {} /var/www/html/images/ \; \
     && find /var/www/html -maxdepth 1 -type f -name '*.css' -exec cp -f {} /var/www/html/css/ \; \
