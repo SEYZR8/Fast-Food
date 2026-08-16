@@ -1,22 +1,111 @@
 <?php
-session_start(); require_once __DIR__.'/conf.php'; header('Content-Type: application/json; charset=utf-8');
-function out($data,$code=200){http_response_code($code);echo json_encode($data,JSON_UNESCAPED_UNICODE|JSON_UNESCAPED_SLASHES);exit;}
-function cycleStart(){ $t=time(); $d=strtotime(date('Y-m-d').' 06:00:00'); return $t >= $d ? date('Y-m-d H:i:s',$d) : date('Y-m-d H:i:s',strtotime('-1 day',$d)); }
-$action=(string)($_REQUEST['action']??'');
+ob_start();
+ini_set('display_errors','0');
+ini_set('log_errors','1');
+error_reporting(E_ALL);
+header('Content-Type: application/json; charset=utf-8');
+
+function out($data,$code=200){
+    while(ob_get_level()>0){ob_end_clean();}
+    http_response_code($code);
+    header('Content-Type: application/json; charset=utf-8');
+    echo json_encode($data,JSON_UNESCAPED_UNICODE|JSON_UNESCAPED_SLASHES);
+    exit;
+}
+set_exception_handler(function(Throwable $e){error_log('Courier API exception: '.$e->getMessage());out(['ok'=>false,'message'=>'Server xatosi.'],500);});
+register_shutdown_function(function(){
+    $e=error_get_last();
+    if($e && in_array($e['type'],[E_ERROR,E_PARSE,E_CORE_ERROR,E_COMPILE_ERROR],true)){
+        error_log('Courier API fatal: '.$e['message']);
+        while(ob_get_level()>0){ob_end_clean();}
+        http_response_code(500);
+        header('Content-Type: application/json; charset=utf-8');
+        echo json_encode(['ok'=>false,'message'=>'Server xatosi.'],JSON_UNESCAPED_UNICODE|JSON_UNESCAPED_SLASHES);
+    }
+});
+
 try{
-$conn->query("CREATE TABLE IF NOT EXISTS couriers(id BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,name VARCHAR(190) NOT NULL,phone VARCHAR(60) NOT NULL UNIQUE,pin_hash VARCHAR(255) NULL,status VARCHAR(30) NOT NULL DEFAULT 'offline',last_seen TIMESTAMP NULL,created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4");
-foreach(['pin_hash VARCHAR(255) NULL','status VARCHAR(30) NOT NULL DEFAULT \'offline\'','last_seen TIMESTAMP NULL'] as $c){try{$conn->query('ALTER TABLE couriers ADD COLUMN '.$c);}catch(Throwable $e){}}
-$defaultPhone='+998998305603;$st=$conn->prepare('SELECT id,pin_hash FROM couriers WHERE phone=? LIMIT 1');$st->bind_param('s',$defaultPhone);$st->execute();$existing=$st->get_result()->fetch_assoc();if(!$existing){$h=password_hash('Lavash',PASSWORD_DEFAULT);$st=$conn->prepare("INSERT INTO couriers(name,phone,pin_hash,status) VALUES(?,?,?,'offline')");$n='Daler Lavash';$st->bind_param('sss',$n,$defaultPhone,$h);$st->execute();}elseif(empty($existing['pin_hash'])){$h=password_hash('Lavash',PASSWORD_DEFAULT);$st=$conn->prepare('UPDATE couriers SET pin_hash=? WHERE id=?');$st->bind_param('si',$h,$existing['id']);$st->execute();}
-if($action==='login'){$login=trim((string)($_POST['login']??$_POST['phone']??''));$pin=(string)($_POST['password']??$_POST['pin']??'');if($login===''||$pin==='')out(['ok'=>false,'message'=>'Login va parolni kiriting.'],422);$phone=mb_strtolower($login)==='daler'?$defaultPhone:preg_replace('/[^0-9+]/','',$login);$st=$conn->prepare('SELECT id,name,phone,pin_hash FROM couriers WHERE phone=? LIMIT 1');$st->bind_param('s',$phone);$st->execute();$c=$st->get_result()->fetch_assoc();if(!$c||empty($c['pin_hash'])||!password_verify($pin,$c['pin_hash']))out(['ok'=>false,'message'=>'Login yoki parol noto‘g‘ri.'],401);session_regenerate_id(true);$_SESSION['courier_id']=(int)$c['id'];$st=$conn->prepare("UPDATE couriers SET status='online',last_seen=NOW() WHERE id=?");$id=(int)$c['id'];$st->bind_param('i',$id);$st->execute();out(['ok'=>true,'data'=>$c]);}
-$id=(int)($_SESSION['courier_id']??0);if(!$id)out(['ok'=>false,'message'=>'Kirish kerak.'],401);
-$st=$conn->prepare("UPDATE couriers SET status='online',last_seen=NOW() WHERE id=?");$st->bind_param('i',$id);$st->execute();
-if($action==='logout'){$st=$conn->prepare("UPDATE couriers SET status='offline' WHERE id=?");$st->bind_param('i',$id);$st->execute();$_SESSION=[];session_destroy();out(['ok'=>true]);}
-if($action==='me'){$st=$conn->prepare('SELECT id,name,phone,status,last_seen FROM couriers WHERE id=?');$st->bind_param('i',$id);$st->execute();out(['ok'=>true,'data'=>$st->get_result()->fetch_assoc()]);}
-$conn->query("CREATE TABLE IF NOT EXISTS admin_orders(id BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,source_table VARCHAR(128),source_key VARCHAR(191),customer_name VARCHAR(190) NOT NULL DEFAULT '',phone VARCHAR(60) NOT NULL DEFAULT '',address TEXT,note TEXT,amount DECIMAL(12,2) NOT NULL DEFAULT 0,payment_method VARCHAR(20) NOT NULL DEFAULT 'cash',lat DECIMAL(10,7) NULL,lng DECIMAL(10,7) NULL,status VARCHAR(40) NOT NULL DEFAULT 'new',courier_id BIGINT UNSIGNED NULL,created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4");
-if($action==='summary'){$start=cycleStart();$end=date('Y-m-d H:i:s',strtotime($start.' +18 hours'));$st=$conn->prepare("SELECT COUNT(*) completed,COALESCE(SUM(CASE WHEN status='completed' THEN amount ELSE 0 END),0) sales FROM admin_orders WHERE courier_id=? AND created_at>=? AND created_at<?");$st->bind_param('iss',$id,$start,$end);$st->execute();$r=$st->get_result()->fetch_assoc();out(['ok'=>true,'data'=>['completed'=>(int)$r['completed'],'sales'=>(float)$r['sales'],'cycle_start'=>$start,'cycle_end'=>$end]]);}
-if($action==='history'){$st=$conn->prepare('SELECT id,customer_name,amount,payment_method,status,created_at,address,lat,lng,note FROM admin_orders WHERE courier_id=? ORDER BY created_at DESC LIMIT 500');$st->bind_param('i',$id);$st->execute();$q=$st->get_result();$rows=[];while($x=$q->fetch_assoc())$rows[]=$x;out(['ok'=>true,'data'=>$rows]);}
-if($action==='orders'){$st=$conn->prepare("SELECT * FROM admin_orders WHERE courier_id=? AND status IN('confirmed','preparing','delivering') ORDER BY created_at DESC");$st->bind_param('i',$id);$st->execute();$q=$st->get_result();$rows=[];while($x=$q->fetch_assoc())$rows[]=$x;out(['ok'=>true,'data'=>$rows]);}
-if($action==='status'){$oid=(int)($_POST['order_id']??0);$s=(string)($_POST['status']??'delivering');if(!$oid||!in_array($s,['preparing','delivering','completed'],true))out(['ok'=>false,'message'=>'Status noto‘g‘ri.'],422);$st=$conn->prepare('UPDATE admin_orders SET status=? WHERE id=? AND courier_id=?');$st->bind_param('sii',$s,$oid,$id);$st->execute();out(['ok'=>true]);}
-out(['ok'=>false,'message'=>'Unknown action'],404);
+    session_start();
+    require_once __DIR__.'/conf.php';
+    $action=(string)($_REQUEST['action']??'');
+    function cycleStart(){
+        $t=time(); $d=strtotime(date('Y-m-d').' 06:00:00');
+        return $t >= $d ? date('Y-m-d H:i:s',$d) : date('Y-m-d H:i:s',strtotime('-1 day',$d));
+    }
+
+    $conn->query("CREATE TABLE IF NOT EXISTS couriers(
+        id BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+        name VARCHAR(190) NOT NULL,
+        phone VARCHAR(60) NOT NULL UNIQUE,
+        pin_hash VARCHAR(255) NULL,
+        status VARCHAR(30) NOT NULL DEFAULT 'offline',
+        last_seen TIMESTAMP NULL,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4");
+    foreach(["pin_hash VARCHAR(255) NULL","status VARCHAR(30) NOT NULL DEFAULT 'offline'","last_seen TIMESTAMP NULL"] as $c){try{$conn->query('ALTER TABLE couriers ADD COLUMN '.$c);}catch(Throwable $e){}}
+
+    $defaultPhone='+998998305603';
+    $st=$conn->prepare('SELECT id,name,phone,pin_hash FROM couriers WHERE phone=? LIMIT 1');
+    $st->bind_param('s',$defaultPhone);$st->execute();$existing=$st->get_result()->fetch_assoc();
+    if(!$existing){
+        $hash=password_hash('Lavash',PASSWORD_DEFAULT);$name='Daler Lavash';
+        $st=$conn->prepare("INSERT INTO couriers(name,phone,pin_hash,status) VALUES(?,?,?,'offline')");$st->bind_param('sss',$name,$defaultPhone,$hash);$st->execute();
+    }elseif(empty($existing['pin_hash'])){
+        $hash=password_hash('Lavash',PASSWORD_DEFAULT);$st=$conn->prepare('UPDATE couriers SET pin_hash=? WHERE id=?');$st->bind_param('si',$hash,$existing['id']);$st->execute();
+    }
+
+    if($action==='login'){
+        $login=trim((string)($_POST['login']??$_POST['phone']??''));$pin=(string)($_POST['password']??$_POST['pin']??'');
+        if($login===''||$pin==='')out(['ok'=>false,'message'=>'Login va parolni kiriting.'],422);
+        $phone=mb_strtolower($login)==='daler'?$defaultPhone:preg_replace('/[^0-9+]/','',$login);
+        $st=$conn->prepare('SELECT id,name,phone,pin_hash FROM couriers WHERE phone=? LIMIT 1');$st->bind_param('s',$phone);$st->execute();$c=$st->get_result()->fetch_assoc();
+        if(!$c||empty($c['pin_hash'])||!password_verify($pin,$c['pin_hash']))out(['ok'=>false,'message'=>'Login yoki parol noto‘g‘ri.'],401);
+        session_regenerate_id(true);$_SESSION['courier_id']=(int)$c['id'];$_SESSION['courier_name']=$c['name'];
+        $id=(int)$c['id'];$st=$conn->prepare("UPDATE couriers SET status='online',last_seen=NOW() WHERE id=?");$st->bind_param('i',$id);$st->execute();
+        out(['ok'=>true,'data'=>['id'=>$id,'name'=>$c['name'],'phone'=>$c['phone']]]);
+    }
+
+    $id=(int)($_SESSION['courier_id']??0);if(!$id)out(['ok'=>false,'message'=>'Kirish kerak.'],401);
+    $st=$conn->prepare("UPDATE couriers SET status='online',last_seen=NOW() WHERE id=?");$st->bind_param('i',$id);$st->execute();
+
+    if($action==='logout'){
+        $st=$conn->prepare("UPDATE couriers SET status='offline' WHERE id=?");$st->bind_param('i',$id);$st->execute();$_SESSION=[];session_destroy();out(['ok'=>true]);
+    }
+    if($action==='me'){
+        $st=$conn->prepare('SELECT id,name,phone,status,last_seen FROM couriers WHERE id=? LIMIT 1');$st->bind_param('i',$id);$st->execute();$c=$st->get_result()->fetch_assoc();
+        if(!$c)out(['ok'=>false,'message'=>'Kuryer topilmadi.'],404);out(['ok'=>true,'data'=>$c]);
+    }
+
+    if(in_array($action,['summary','history','orders','status'],true)){
+        $conn->query("CREATE TABLE IF NOT EXISTS admin_orders(
+            id BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+            source_table VARCHAR(128),source_key VARCHAR(191),
+            customer_name VARCHAR(190) NOT NULL DEFAULT '',phone VARCHAR(60) NOT NULL DEFAULT '',
+            address TEXT,note TEXT,amount DECIMAL(12,2) NOT NULL DEFAULT 0,
+            payment_method VARCHAR(20) NOT NULL DEFAULT 'cash',lat DECIMAL(10,7) NULL,lng DECIMAL(10,7) NULL,
+            status VARCHAR(40) NOT NULL DEFAULT 'new',courier_id BIGINT UNSIGNED NULL,
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
+        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4");
+        foreach(["payment_method VARCHAR(20) NOT NULL DEFAULT 'cash'","lat DECIMAL(10,7) NULL","lng DECIMAL(10,7) NULL"] as $c){try{$conn->query('ALTER TABLE admin_orders ADD COLUMN '.$c);}catch(Throwable $e){}}
+    }
+    if($action==='summary'){
+        $start=cycleStart();$end=date('Y-m-d H:i:s',strtotime($start.' +18 hours'));
+        $st=$conn->prepare("SELECT COUNT(*) completed,COALESCE(SUM(CASE WHEN status='completed' THEN amount ELSE 0 END),0) sales FROM admin_orders WHERE courier_id=? AND created_at>=? AND created_at<?");
+        $st->bind_param('iss',$id,$start,$end);$st->execute();$r=$st->get_result()->fetch_assoc();
+        out(['ok'=>true,'data'=>['completed'=>(int)$r['completed'],'sales'=>(float)$r['sales'],'cycle_start'=>$start,'cycle_end'=>$end]]);
+    }
+    if($action==='history'){
+        $st=$conn->prepare('SELECT id,customer_name,amount,payment_method,status,created_at,address,lat,lng,note FROM admin_orders WHERE courier_id=? ORDER BY created_at DESC LIMIT 500');
+        $st->bind_param('i',$id);$st->execute();$q=$st->get_result();$rows=[];while($x=$q->fetch_assoc())$rows[]=$x;out(['ok'=>true,'data'=>$rows]);
+    }
+    if($action==='orders'){
+        $st=$conn->prepare("SELECT * FROM admin_orders WHERE courier_id=? AND status IN('confirmed','preparing','delivering') ORDER BY created_at DESC");
+        $st->bind_param('i',$id);$st->execute();$q=$st->get_result();$rows=[];while($x=$q->fetch_assoc())$rows[]=$x;out(['ok'=>true,'data'=>$rows]);
+    }
+    if($action==='status'){
+        $oid=(int)($_POST['order_id']??0);$s=(string)($_POST['status']??'delivering');
+        if(!$oid||!in_array($s,['preparing','delivering','completed'],true))out(['ok'=>false,'message'=>'Status noto‘g‘ri.'],422);
+        $st=$conn->prepare('UPDATE admin_orders SET status=? WHERE id=? AND courier_id=?');$st->bind_param('sii',$s,$oid,$id);$st->execute();out(['ok'=>true]);
+    }
+    out(['ok'=>false,'message'=>'Unknown action'],404);
 }catch(Throwable $e){error_log('Courier API: '.$e->getMessage());out(['ok'=>false,'message'=>'Server xatosi.'],500);}
-?>
