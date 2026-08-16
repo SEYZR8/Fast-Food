@@ -1,12 +1,14 @@
-<?php include "function.php"; 
-ad_headers(); 
+<?php
+include 'function.php';
 
-ad_head_content();
-search_modal();
-charts_circle();
-cards();
+headers();
+banners();
+search_result();
+loadtabel();
+dishes();
 msgModals();
-tables();
-formModals();
-ad_footers();?>
-<script src="../"></script>
+introduction();
+special_menu();
+review();
+order_contact();
+footers();
