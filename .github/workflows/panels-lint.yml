@@ -1,0 +1,33 @@
+name: Lavash N1 panels lint
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  lint:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: PHP syntax
+        run: |
+          php -l panel_api.php
+          php -l admin_ultra.php
+          php -l courier.php
+          php -l admin.php
+      - name: JavaScript syntax
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          import re
+          for name in ['admin_ultra.php','courier.php']:
+              text=Path(name).read_text(encoding='utf-8')
+              scripts=re.findall(r'<script>(.*?)</script>', text, flags=re.S)
+              if not scripts:
+                  raise SystemExit(f'No inline script found in {name}')
+              for i,code in enumerate(scripts):
+                  Path(f'/tmp/{name}.{i}.js').write_text(code,encoding='utf-8')
+          PY
+          node --check /tmp/admin_ultra.php.0.js
+          node --check /tmp/courier.php.0.js
