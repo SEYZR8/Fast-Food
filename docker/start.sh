@@ -19,13 +19,24 @@ if [ -z "${DB_HOST:-}" ] || [ "${DB_HOST}" = "127.0.0.1" ] || [ "${DB_HOST}" = "
 
     i=0
     until mariadb-admin ping --silent >/dev/null 2>&1; do
-        i=$((i+1))
+        i=$((i + 1))
         [ "$i" -lt 60 ] || { cat /tmp/mysql.log; exit 1; }
         sleep 1
     done
 
+    # Create the database.
     mariadb -uroot <<SQL
 CREATE DATABASE IF NOT EXISTS \`${DB_NAME}\` CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
+SQL
+
+    # The bundled MariaDB initially allows root through the local Unix socket,
+    # but PHP connects over TCP (127.0.0.1). Ensure root can authenticate over
+    # TCP as well, using the same DB_PASSWORD supplied to the application.
+    mariadb -uroot <<SQL
+CREATE USER IF NOT EXISTS 'root'@'127.0.0.1' IDENTIFIED BY '${DB_PASSWORD}';
+ALTER USER 'root'@'127.0.0.1' IDENTIFIED BY '${DB_PASSWORD}';
+GRANT ALL PRIVILEGES ON *.* TO 'root'@'127.0.0.1' WITH GRANT OPTION;
+FLUSH PRIVILEGES;
 SQL
 
     # Create the tables required by the original application if they do not exist.
