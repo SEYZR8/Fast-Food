@@ -1,4 +1,4 @@
 <?php
-header('Location: admin_pro.php', true, 302);
+header('Location: admin_ultra.php', true, 302);
 exit;
 ?>
