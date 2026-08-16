@@ -1,12 +1,12 @@
 <?php
 // Fast Food database configuration.
-// This deployment runs MariaDB inside the same Render container,
-// so PHP must use the local MariaDB instance unless DB_EXTERNAL=1 is set.
+// The Render image runs MariaDB inside the same container, so the web app
+// uses the local database and does not depend on external DB variables.
 $dbExternal = getenv('DB_EXTERNAL') === '1';
 
 $server = $dbExternal ? (getenv('DB_HOST') ?: '127.0.0.1') : '127.0.0.1';
 $username = $dbExternal ? (getenv('DB_USER') ?: 'root') : 'root';
-$password = getenv('DB_PASSWORD') ?: '';
+$password = $dbExternal ? (getenv('DB_PASSWORD') ?: '') : '';
 $database = getenv('DB_NAME') ?: 'id18044649_food_website';
 $port = (int) (getenv('DB_PORT') ?: 3306);
 
