@@ -3,7 +3,6 @@ set -eu
 
 PORT="${PORT:-10000}"
 DB_NAME="${DB_NAME:-id18044649_food_website}"
-DB_PASSWORD="${DB_PASSWORD:-}"
 SQL_FILE="/var/www/html/id18044649_food_website.sql"
 
 # Fast Food uses MariaDB inside this same Render container.
@@ -29,18 +28,18 @@ CREATE DATABASE IF NOT EXISTS \`${DB_NAME}\` CHARACTER SET utf8mb4 COLLATE utf8m
 SQL
 
 # Import the original complete database dump on a fresh container.
-# This keeps the real project schema/data instead of a reduced hand-written schema.
 if [ -f "$SQL_FILE" ]; then
     if ! mariadb -uroot "$DB_NAME" -e "SELECT 1 FROM banner LIMIT 1" >/dev/null 2>&1; then
         mariadb -uroot "$DB_NAME" < "$SQL_FILE"
     fi
 fi
 
-# PHP connects over TCP. Configure root for both local socket and TCP access.
-mariadb -uroot <<SQL
-ALTER USER 'root'@'localhost' IDENTIFIED BY '${DB_PASSWORD}';
-CREATE USER IF NOT EXISTS 'root'@'127.0.0.1' IDENTIFIED BY '${DB_PASSWORD}';
-ALTER USER 'root'@'127.0.0.1' IDENTIFIED BY '${DB_PASSWORD}';
+# PHP connects to 127.0.0.1 over TCP. Use an empty local-only password so
+# Render environment variables cannot accidentally break database startup.
+mariadb -uroot <<'SQL'
+ALTER USER 'root'@'localhost' IDENTIFIED BY '';
+CREATE USER IF NOT EXISTS 'root'@'127.0.0.1' IDENTIFIED BY '';
+ALTER USER 'root'@'127.0.0.1' IDENTIFIED BY '';
 GRANT ALL PRIVILEGES ON *.* TO 'root'@'localhost' WITH GRANT OPTION;
 GRANT ALL PRIVILEGES ON *.* TO 'root'@'127.0.0.1' WITH GRANT OPTION;
 FLUSH PRIVILEGES;
